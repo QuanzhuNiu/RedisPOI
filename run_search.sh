@@ -1,3 +1,4 @@
+# example
 EXP_NAME="output/output_exp_10w_"
 DB=1
 
