@@ -229,8 +229,7 @@ def save_output(pois, path, log):
     with open(log_path, mode='w', encoding='utf-8') as file:
         file.write(log)
 
-if __name__ == "__main__":
-    
+if __name__ == "__main__":  
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--db", type=int, default=0, help="Redis数据库编号,0为所有数据,1-5分别为10w-50w数据"

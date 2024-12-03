@@ -1,4 +1,5 @@
-# example
+# Example
+# You can set by yourself
 EXP_NAME="output/output_exp_10w_"
 DB=1
 
