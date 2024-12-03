@@ -1,6 +1,6 @@
 # RedisPOI
 
-RedisPOI用以爬取指定区域的POI，并将其存储于Redis数据库中。RedisPOI还实现了基本的查询检索和性能计算功能。
+RedisPOI能爬取指定区域的POI，并将其存储于Redis数据库中。RedisPOI还实现了基本的查询检索和性能计算功能。
 
 ## 安装
 
@@ -9,6 +9,8 @@ RedisPOI用以爬取指定区域的POI，并将其存储于Redis数据库中。R
 ```bash
 conda create -name redis-poi python=3.13.0
 conda activate redis-poi
+git clone https://github.com/QuanzhuNiu/RedisPOI.git
+cd RedisPOI
 pip install -r requirements.txt
 ```
 
@@ -55,3 +57,6 @@ source run_search.sh
 ```
 
 ## 计算检索性能
+
+* RedisPOI每次检索都会计算检索时长和吞吐量（单位时间检索的POI条数），并将其保存在log中，共用户参考。
+* 我们提供了[collect_data.py](collect_data.py)用于将你的实验结果的检索时长和吞吐量汇总起来，方便统计实验数据。
