@@ -3,6 +3,7 @@ import csv
 import math
 import argparse
 import os
+import time
 
 def clear_database():
     """
@@ -33,12 +34,6 @@ def add_poi(poi_id, amenity, name, latitude, longitude, geometry, phone):
     # 使用 GEOADD 存储地理位置
     r.geoadd("pois", (longitude, latitude, poi_id))
 
-def get_poi(poi_id):
-    """
-    从 Redis 数据库中获取 POI 详细信息
-    """
-    return r.hgetall(f"poi:{poi_id}")
-
 def store_pois_from_csv(file_path):
     """
     从 CSV 文件中加载 POI 数据并存储到 Redis 数据库
@@ -51,13 +46,7 @@ def store_pois_from_csv(file_path):
                 print(f"跳过非数字 POI ID: {poi_id}")
                 continue
             add_poi(poi_id, row['amenity'], row['name'], row['latitude'], row['longitude'], row['geometry'], row['phone'])
-
-    """
-    获取指定半径范围内的所有 POI
-    """
-    poi_ids = r.georadius("pois", longitude, latitude, radius, unit=unit)
-    pois = [r.hgetall(f"poi:{poi_id.decode('utf-8')}") for poi_id in poi_ids]
-    return pois
+        print(f"已存储{file_path}中的POI数据!")
 
 def get_pois_within_bbox(top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon):
     """
@@ -91,7 +80,7 @@ def get_pois_within_bbox(top_left_lat, top_left_lon, bottom_right_lat, bottom_ri
     # 过滤出矩形范围内的 POI
     pois_id = set()
     for item in poi_items:
-        poi_id = item[0].decode('utf-8')
+        poi_id = item[0]
         lon, lat = item[1]
         if min_lat <= lat <= max_lat and min_lon <= lon <= max_lon:
             pois_id.add(poi_id)
@@ -100,17 +89,19 @@ def get_pois_within_bbox(top_left_lat, top_left_lon, bottom_right_lat, bottom_ri
 def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=None, radius=None, phone=None, bbox=None):
     """
     综合查询
-    returns: 查询结果POI list, log
+    returns: 查询结果POI list, log, 搜索条数
     """
     sets = []
     cod = 0
     log = ""
+    lens = 0
 
     # 属性查询
     if poi_id:
         if r.exists(f"poi:{poi_id}"):
-            sets.append(set([poi_id.encode('utf-8')]))
+            sets.append(set([f"poi:{poi_id}".encode('utf-8')]))
             cod += 1
+            lens += 1
             log += f'使用条件:id为 {poi_id}查询到1条POI数据。\n'
         else:
             return [], f"POI ID {poi_id} 不存在"
@@ -119,6 +110,7 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         if amenity_set:
             sets.append(amenity_set)
             cod += 1
+            lens += len(amenity_set)
             log += f'条件{cod}:设施类型为 {amenity},查询到{len(amenity_set)}条POI数据。\n'
         else:
             return [], f"没有找到 amenity 为 '{amenity}' 的 POI"
@@ -127,6 +119,7 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         if name_set:
             sets.append(name_set)
             cod += 1
+            lens += len(name_set)
             log += f'条件{cod}:设施名称为 {name},查询到{len(name_set)}条POI数据。\n'
         else:
             return [], f"没有找到名称为 '{name}' 的 POI"
@@ -138,6 +131,7 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         if geo_poi_set:
             sets.append(set(geo_poi_set))
             cod += 1
+            lens += len(geo_poi_set)
             log += f'条件{cod}:在({longitude},{latitude})的半径 {radius} km内查询到{len(geo_poi_set)}条POI数据。\n'
         else:
             return [], f"在({longitude},{latitude})的半径 {radius} km内没有找到 POI"
@@ -152,6 +146,7 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         if lat_poi_set:
             sets.append(lat_poi_set)
             cod += 1
+            lens += len(lat_poi_set)
             log += f'条件{cod}:纬度为 {latitude} ,查询到{len(lat_poi_set)}条POI数据。\n'
         else:
             return [], f"没有找到纬度为 {latitude} 的 POI"
@@ -166,6 +161,7 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         if lon_poi_set:
             sets.append(lon_poi_set)
             cod += 1
+            lens += len(lon_poi_set)
             log += f'条件{cod}:经度为 {longitude} ,查询到{len(lon_poi_set)}条POI数据。\n'
         else:
             return [], f"没有找到经度为 {longitude} 的 POI"
@@ -176,6 +172,7 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         if phone_set:
             sets.append(phone_set)
             cod += 1
+            lens += len(phone_set)
             log += f'条件{cod}:电话号为 {phone},查询到{len(phone_set)}条POI数据。\n'
         else:
             return [], f"没有找到电话号为 '{phone}' 的 POI"
@@ -185,11 +182,12 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
         bbox = bbox.split(",")
         assert len(bbox) == 4, "包围框参数必须包含4个值"
         top_left_lat, top_left_lon, bottom_right_lat, bottom_right_lon = bbox
-        pois_id = get_pois_within_bbox(int(top_left_lat), int(top_left_lon), int(bottom_right_lat), int(bottom_right_lon))
+        pois_id = get_pois_within_bbox(float(top_left_lat), float(top_left_lon), float(bottom_right_lat), float(bottom_right_lon))
         if pois_id:
             sets.append(pois_id)
             cod += 1
-            log += f'条件{cod}:包围框为 {bbox},查询到{len(pois_id)}条POI数据。\n'
+            lens += len(pois_id)
+            log += f'条件{cod}:包围框为{bbox},查询到{len(pois_id)}条POI数据。\n'
         else:
             return [], f"包围框 {bbox} 内没有找到 POI"
     
@@ -200,22 +198,26 @@ def search_pois(poi_id=None, amenity=None, name=None, latitude=None, longitude=N
     result_ids = set.intersection(*sets)
     # 获取 POI 详细信息
     if len(result_ids)==1:
-        print(result_ids)
-        pois = [r.hgetall(poi_id) for poi_id in result_ids]
-        print(pois)
+        pois = [r.hgetall(poi_id if poi_id.startswith(b"poi:") else f"poi:{poi_id.decode('utf-8')}".encode('utf-8')) for poi_id in result_ids]
     else:
         pois = [r.hgetall(f"poi:{poi_id.decode('utf-8')}") for poi_id in result_ids]
-    return pois, log + f"取交集共查询到{len(pois)}条POI数据!"
+    return pois, log + f"取交集共查询到{len(pois)}条POI数据!" , lens
 
 def save_output(pois, path, log):
-    """
-    存储查询结果
-    """
+    """存储查询结果"""
     # 定义 CSV 文件的列名
     fieldnames = ["id", "amenity", "name", "latitude", "longitude", "geometry", "phone"]
-
     os.makedirs(path, exist_ok=True)
+    
     csv_path = os.path.join(path, "pois.csv")
+    log_path = os.path.join(path, "log.txt")
+    
+    # 如果文件已存在，先删除
+    if os.path.exists(csv_path):
+        os.remove(csv_path)
+    if os.path.exists(log_path):
+        os.remove(log_path)
+    
     # 打开文件进行写操作
     with open(csv_path, mode='w', newline='', encoding='utf-8') as file:
         writer = csv.DictWriter(file, fieldnames=fieldnames)
@@ -223,7 +225,7 @@ def save_output(pois, path, log):
         for poi in pois:
             decoded_poi = {key.decode('utf-8'): value.decode('utf-8') for key, value in poi.items()}
             writer.writerow(decoded_poi)
-    log_path = os.path.join(path, "log.txt")
+    
     with open(log_path, mode='w', encoding='utf-8') as file:
         file.write(log)
 
@@ -264,8 +266,8 @@ if __name__ == "__main__":
     if args.output:
         if args.id:
             assert not (args.amenity or args.name or args.longitude or args.latitude or args.phone), "若提供id,其他索引无效!"
-            pois, log = search_pois(poi_id=args.id)
-            save_output(pois, args.output, log)
+            start_time = time.time()
+            pois, log, lens = search_pois(poi_id=args.id)      
         else:
             if args.bounding_box:
                 assert not (args.latitude or args.longitude), "若提供包围框,经纬度无效!"
@@ -275,8 +277,13 @@ if __name__ == "__main__":
                 assert not args.radius, "若仅提供纬度,半径无效!"
             else:
                 assert not args.radius, "若仅提供经度,半径无效!"
-            pois, log = search_pois(amenity=args.amenity, name=args.name, latitude=args.latitude, longitude=args.longitude, radius=args.radius, phone=args.phone, bbox=args.bounding_box)
-            save_output(pois, args.output, log)
+            start_time = time.time()
+            pois, log, lens= search_pois(amenity=args.amenity, name=args.name, latitude=args.latitude, longitude=args.longitude, radius=args.radius, phone=args.phone, bbox=args.bounding_box)
+        end_time = time.time()
+        delta_time = end_time - start_time
+        throughputs = lens/delta_time
+        log = log+f"\n搜索时间为{delta_time}秒,吞吐量为{throughputs}条/秒!"
+        save_output(pois, args.output, log)
 
     print("已完成!")
 
